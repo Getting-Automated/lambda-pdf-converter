@@ -209,6 +209,126 @@ This project uses a Docker-based approach for AWS Lambda, which offers several a
 
 ## 🚀 Getting Started
 
+### Function Variants
+
+This project provides two variants of the PDF-to-JPG converter function:
+
+#### 1. Standard Version (`pdf-to-jpg-converter`)
+
+- Returns all converted images in a single ZIP file
+- Ideal for handling multi-page PDFs where you want to keep all pages together
+- Requires additional processing in n8n to unzip the contents
+
+#### 2. Unzipped Version (`pdf-to-jpg-converter-unzipped`)
+
+- Returns individual JPG images directly in the response (no ZIP file)
+- Each image is returned as a base64-encoded string with its filename and content type
+- Simplifies processing in n8n as no unzipping is required
+- Ideal when you need to process each page individually
+
+### Deploying the Functions
+
+#### Standard Version (ZIP output)
+```bash
+# Make the deployment script executable
+chmod +x build_and_deploy.sh
+
+# Run the deployment script
+./build_and_deploy.sh
+```
+
+#### Unzipped Version (Individual JPGs)
+```bash
+# Make the deployment script executable
+chmod +x build_and_deploy_unzipped.sh
+
+# Run the deployment script
+./build_and_deploy_unzipped.sh
+```
+
+### n8n Integration
+
+#### For the Standard Version (ZIP output)
+```javascript
+/**
+ * Make sure you have installed `jszip` in your n8n environment!
+ * For example, in your Dockerfile or on your server:
+ *    npm install jszip
+ */
+
+const JSZip = require('jszip');
+
+// 1) Get the base64-encoded string of the ZIP data.
+const base64Data = $input.first().json.result.body;
+const binaryData = Buffer.from(base64Data, 'base64');
+
+// 2) Load the ZIP content using jszip
+const zip = new JSZip();
+return zip.loadAsync(binaryData)
+  .then(async (contents) => {
+    const items = [];
+
+    // 3) Loop over each file in the ZIP
+    for (const fileName of Object.keys(contents.files)) {
+      const file = contents.files[fileName];
+
+      // If it's not a directory, read the file contents
+      if (!file.dir) {
+        const fileBuffer = await file.async('nodebuffer');
+
+        // 4) Return each unzipped file as a *separate* n8n item
+        items.push({
+          json: {
+            fileName
+          },
+          binary: {
+            // Use a property name like "data" or anything you want
+            data: {
+              data: fileBuffer.toString('base64'),
+              mimeType: 'application/jpeg', // or something more specific if you know
+              fileName
+            }
+          }
+        });
+      }
+    }
+
+    // Return an array of items, each with a single unzipped file
+    return items;
+  });
+```
+
+#### For the Unzipped Version (Individual JPGs)
+```javascript
+// 1) Get the input data from the Lambda response
+const lambdaResponse = $input.first().json.result;
+
+// 2) Parse the body if it's a string, or use it directly if it's already an object
+let responseBody;
+try {
+  responseBody = typeof lambdaResponse.body === 'string' 
+    ? JSON.parse(lambdaResponse.body) 
+    : lambdaResponse.body;
+} catch (error) {
+  throw new Error(`Failed to parse Lambda response body: ${error.message}`);
+}
+
+// 3) Convert each image into an n8n item
+return responseBody.images.map(image => ({
+  json: {
+    fileName: image.filename,
+    totalPages: responseBody.total_pages
+  },
+  binary: {
+    data: {
+      data: image.content,
+      mimeType: image.content_type,
+      fileName: image.filename
+    }
+  }
+}));
+```
+
 ### Prerequisites
 
 - AWS Account
