@@ -83,9 +83,9 @@ COPY requirements.txt .
 RUN pip3 install -r requirements.txt --no-cache-dir
 
 # Copy function code
-COPY lambda_function_unzipped.py ${LAMBDA_TASK_ROOT}/app.py
+COPY lambda_function_unzipped.py /var/task/app.py
 
-CMD ["app.lambda_handler"]
+CMD [ "app.lambda_handler" ]
 EOL
 
 # Build Docker image
